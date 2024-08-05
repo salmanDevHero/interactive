@@ -15,17 +15,14 @@ class MyGLSurfaceView(context: Context, attrs: AttributeSet? = null) :
         setEGLContextClientVersion(2)
         renderer = MyGLRenderer()
         setRenderer(renderer)
-        renderMode = RENDERMODE_WHEN_DIRTY
+        renderMode = RENDERMODE_CONTINUOUSLY  // Cha
     }
 
     override fun onTouchEvent(event: MotionEvent?): Boolean {
         event?.let {
             if (it.action == MotionEvent.ACTION_MOVE || it.action == MotionEvent.ACTION_DOWN) {
-                // Convert touch coordinates to OpenGL coordinates
-                val x = (it.x / width) * 2 - 1
-                val y = 1 - (it.y / height) * 2
-                renderer.addTouchPoint(x, y)
-                requestRender() // Request to render the frame after updating touch points
+                renderer.addTouchPoint(it.x, it.y)
+                requestRender()
             }
         }
         return true
