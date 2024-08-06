@@ -15,18 +15,16 @@ class MyGLSurfaceView(context: Context, attrs: AttributeSet? = null) :
         setEGLContextClientVersion(2)
         renderer = MyGLRenderer()
         setRenderer(renderer)
-        renderMode = RENDERMODE_CONTINUOUSLY  // Cha
+        renderMode = RENDERMODE_CONTINUOUSLY
     }
 
-    override fun onTouchEvent(event: MotionEvent?): Boolean {
-        event?.let {
-            if (it.action == MotionEvent.ACTION_MOVE || it.action == MotionEvent.ACTION_DOWN) {
-                renderer.addTouchPoint(it.x, it.y)
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.action) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                renderer.addTouchPoint(event.x, event.y)
                 requestRender()
             }
         }
         return true
     }
-
-
 }

@@ -1,3 +1,4 @@
+import android.opengl.EGLConfig
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
 import android.util.Log
@@ -11,8 +12,6 @@ import kotlin.random.Random
 class MyGLRenderer : GLSurfaceView.Renderer {
     private var program: Int = 0
     private var vertexBuffer: FloatBuffer? = null
-    private val touchPoints: MutableList<Float> = mutableListOf()
-
     private var screenWidth: Int = 0
     private var screenHeight: Int = 0
     private var lastFrameTime: Long = 0
@@ -26,7 +25,6 @@ class MyGLRenderer : GLSurfaceView.Renderer {
         var vy: Float = Random.nextFloat() * 0.02f - 0.01f
         var size: Float = Random.nextFloat() * 15f + 5f
     }
-
 
     private val vertexShaderCode = """
         attribute vec4 vPosition;
@@ -47,90 +45,95 @@ class MyGLRenderer : GLSurfaceView.Renderer {
         }
     """.trimIndent()
 
-    init {
-        updateVertexBuffer()
-    }
-
     fun addTouchPoint(x: Float, y: Float) {
         val glX = (x / screenWidth) * 2 - 1
         val glY = -((y / screenHeight) * 2 - 1)
-        for (i in 0 until 10) {  // Add 10 particles per touch
-            particles.add(Particle(glX, glY))
+        synchronized(particles) {
+            for (i in 0 until 10) {  // Add 10 particles per touch
+                particles.add(Particle(glX, glY))
+            }
         }
         Log.d("GLRenderer", "Added particles, Total particles: ${particles.size}")
     }
 
     private fun updateParticles() {
-        val particlesToDraw = ArrayList<Particle>()  // Create a temporary list
+        synchronized(particles) {
+            val iterator = particles.iterator()
 
-        val iterator = particles.iterator()
-        while (iterator.hasNext()) {
-            val particle = iterator.next()
-            particle.x += particle.vx
-            particle.y += particle.vy
-            particle.size *= 0.99f  // Slowly decrease size
+            while (iterator.hasNext()) {
+                val particle = iterator.next()
+                particle.x += particle.vx
+                particle.y += particle.vy
+                particle.size *= 0.99f  // Slowly decrease size
 
-            // Bounce off edges
-            if (particle.x > 1f || particle.x < -1f) particle.vx *= -1
-            if (particle.y > 1f || particle.y < -1f) particle.vy *= -1
+                // Bounce off edges
+                if (particle.x > 1f || particle.x < -1f) particle.vx *= -1
+                if (particle.y > 1f || particle.y < -1f) particle.vy *= -1
 
-            if (particle.size >= 1f) {
-                particlesToDraw.add(particle)  // Add remaining particles to draw list
-            } else {
-                iterator.remove()  // Safely remove small particles using iterator
+                if (particle.size < 1f) {
+                    iterator.remove()
+                }
             }
         }
-
-        particles.clear()  // Optional: Clear the original list for efficiency
-        particles.addAll(particlesToDraw)  // Update original list after modification
     }
 
     private fun updateVertexBuffer() {
-        val pointsArray = FloatArray(particles.size * 3) // 3 floats per particle: x, y, size
-        particles.forEachIndexed { index, particle ->
-            pointsArray[index * 3] = particle.x
-            pointsArray[index * 3 + 1] = particle.y
-            pointsArray[index * 3 + 2] = particle.size
-        }
-        vertexBuffer = ByteBuffer.allocateDirect(pointsArray.size * 4)
-            .order(ByteOrder.nativeOrder())
-            .asFloatBuffer()
-            .apply {
-                put(pointsArray)
-                position(0)
+        synchronized(particles) {
+            if (particles.isEmpty()) {
+                vertexBuffer = null
+                return
             }
+
+            val pointsArray = FloatArray(particles.size * 3)
+            particles.forEachIndexed { index, particle ->
+                pointsArray[index * 3] = particle.x
+                pointsArray[index * 3 + 1] = particle.y
+                pointsArray[index * 3 + 2] = particle.size
+            }
+            vertexBuffer = ByteBuffer.allocateDirect(pointsArray.size * 4)
+                .order(ByteOrder.nativeOrder())
+                .asFloatBuffer()
+                .apply {
+                    put(pointsArray)
+                    position(0)
+                }
+        }
     }
 
-
     override fun onDrawFrame(gl: GL10?) {
-        // Clear the screen
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+        synchronized(particles) {
+            if (particles.isNotEmpty()) {
+                GLES20.glUseProgram(program)
 
-        // Use the shader program
-        GLES20.glUseProgram(program)
+                updateParticles()
+                updateVertexBuffer()
 
-        // Set the vertex position attribute
-        val positionHandle = GLES20.glGetAttribLocation(program, "vPosition")
-        GLES20.glEnableVertexAttribArray(positionHandle)
-        GLES20.glVertexAttribPointer(positionHandle, 2, GLES20.GL_FLOAT, false, 0, vertexBuffer)
+                val positionHandle = GLES20.glGetAttribLocation(program, "vPosition")
+                GLES20.glEnableVertexAttribArray(positionHandle)
+                vertexBuffer?.let {
+                    GLES20.glVertexAttribPointer(positionHandle, 2, GLES20.GL_FLOAT, false, 12, it)
+                }
 
-        // Set the point size attribute
-        val pointSizeHandle = GLES20.glGetAttribLocation(program, "pointSize")
-        GLES20.glEnableVertexAttribArray(pointSizeHandle)
-        GLES20.glVertexAttrib1f(pointSizeHandle, 20.0f) // Set a fixed point size for all particles
-        // Update particle positions
-        updateParticles()
+                val pointSizeHandle = GLES20.glGetAttribLocation(program, "pointSize")
+                GLES20.glEnableVertexAttribArray(pointSizeHandle)
+                vertexBuffer?.let {
+                    it.position(2)
+                    GLES20.glVertexAttribPointer(pointSizeHandle, 1, GLES20.GL_FLOAT, false, 12, it)
+                }
 
-        // Draw each particle
-        particles.forEach { particle ->
-            GLES20.glDrawArrays(GLES20.GL_POINTS, 0, 1)
+                GLES20.glDrawArrays(GLES20.GL_POINTS, 0, particles.size)
+
+                GLES20.glDisableVertexAttribArray(positionHandle)
+                GLES20.glDisableVertexAttribArray(pointSizeHandle)
+            }
+
         }
-
 
         // Calculate FPS
         val currentTime = System.nanoTime()
         frameCount++
-        if (currentTime - lastFrameTime >= 1000000000) { // 1 second in nanoseconds
+        if (currentTime - lastFrameTime >= 1000000000) {
             fps = frameCount.toFloat()
             frameCount = 0
             lastFrameTime = currentTime
@@ -138,9 +141,9 @@ class MyGLRenderer : GLSurfaceView.Renderer {
         }
     }
 
-    override fun onSurfaceCreated(p0: GL10?, p1: javax.microedition.khronos.egl.EGLConfig?) {
-        GLES20.glClearColor(0.0f, 0.0f, 0f, 1.0f) // Dark blue background
 
+    override fun onSurfaceCreated(p0: GL10?, p1: javax.microedition.khronos.egl.EGLConfig?) {
+        GLES20.glClearColor(0.0f, 0.0f, 0.0f, 1.0f)
 
         val vertexShader = loadShader(GLES20.GL_VERTEX_SHADER, vertexShaderCode)
         val fragmentShader = loadShader(GLES20.GL_FRAGMENT_SHADER, fragmentShaderCode)
@@ -157,7 +160,6 @@ class MyGLRenderer : GLSurfaceView.Renderer {
             }
         }
 
-        // Check OpenGL ES version and extensions
         Log.i("GLRenderer", "GL Version: ${GLES20.glGetString(GLES20.GL_VERSION)}")
         Log.i("GLRenderer", "GL Extensions: ${GLES20.glGetString(GLES20.GL_EXTENSIONS)}")
     }
@@ -177,10 +179,7 @@ class MyGLRenderer : GLSurfaceView.Renderer {
             val compiled = IntArray(1)
             GLES20.glGetShaderiv(shader, GLES20.GL_COMPILE_STATUS, compiled, 0)
             if (compiled[0] == 0) {
-                Log.e(
-                    "GLRenderer",
-                    "Shader compilation error: ${GLES20.glGetShaderInfoLog(shader)}"
-                )
+                Log.e("GLRenderer", "Shader compilation error: ${GLES20.glGetShaderInfoLog(shader)}")
                 throw RuntimeException("Shader compilation failed")
             }
         }
