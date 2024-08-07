@@ -129,7 +129,7 @@ class MyGLRenderer : GLSurfaceView.Renderer {
             }
 
         }
-
+/*
         // Calculate FPS
         val currentTime = System.nanoTime()
         frameCount++
@@ -138,7 +138,7 @@ class MyGLRenderer : GLSurfaceView.Renderer {
             frameCount = 0
             lastFrameTime = currentTime
             Log.d("GLRenderer", "FPS: $fps")
-        }
+        }*/
     }
 
 
